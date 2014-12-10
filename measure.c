@@ -14,6 +14,7 @@
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/ioctl.h>
+#include <netdb.h>
 
 #include "lib.h"
 #include "measure.h"
@@ -32,48 +33,116 @@ static uint32_t timediff(struct timeval *a, struct timeval *b)
 		return 0;
 }
 
-struct result measure(struct options opts)
+static bool wait_fd(int fd, int t)
 {
-	int sockfd, nfds, i;
-	struct sockaddr_in servaddr;
-	char buf[2000];
 	fd_set fds;
+	struct timeval tv_sel;
+
+	FD_ZERO(&fds);
+	FD_SET(fd, &fds);
+	tv_sel.tv_sec = 1;
+	tv_sel.tv_usec = 0;
+
+	return select(fd+1, &fds, NULL, NULL, &tv_sel) > 0;
+}
+
+static bool wait_fd2(int fd, struct timeval *tv_sel)
+{
+	fd_set fds;
+	FD_ZERO(&fds);
+	FD_SET(fd, &fds);
+
+	return select(fd+1, &fds, NULL, NULL, tv_sel) > 0;
+}
+
+/****************************************************/
+
+
+struct result pik(struct client_options opts)
+{
+	int sockfd, i, n;
+	struct sockaddr_in servaddr;
+	char buf[2000], pwd[16] = {0};
 	uint32_t diff;
 	struct timeval tv_sel, tv_last, tv_first, T_first, T_now, T_last;
 	uint32_t b;
 	uint32_t rcv_n = 0, rcv_b = 0;
 	uint32_t test_n = 0, test_b = 0;
 	struct result res;
+	struct hostent *dns;
+	float lat;
 
 	res.err = ERR_EMPTY;
+	res.bandwidth = -1.0;
+	res.latency = -1.0;
+
+	/* resolve DNS */
+
+	dns = gethostbyname(opts.dst);
+	if (!dns) {
+		printf("Unknown host: %s\n", opts.dst);
+		res.err = ERR_UNKHOST;
+		return res;
+	}
+
+	/* connect */
 
 	bzero(&servaddr, sizeof servaddr);
 	servaddr.sin_family = AF_INET;
-	servaddr.sin_addr.s_addr = inet_addr(opts.ip);
-	servaddr.sin_port = htons(4000);
+	bcopy(dns->h_addr, &(servaddr.sin_addr.s_addr), dns->h_length);
+	servaddr.sin_port = htons(opts.port);
+
+	printf("Connecting to %s (%s) port %u\n", opts.dst, inet_ntoa(servaddr.sin_addr), opts.port);
 	sockfd = socket(AF_INET, SOCK_DGRAM, 0);
 
-	FD_ZERO(&fds);
-	FD_SET(sockfd, &fds);
-	nfds = sockfd + 1;
+	/* register */
+
+	for (i = 0; i < 3; i++) {
+		printf("Register... ");
+		snprintf(buf, sizeof buf, "REGISTER");
+		sendto(sockfd, buf, strlen(buf), 0, (struct sockaddr *) &servaddr, sizeof servaddr);
+
+		if (wait_fd(sockfd, 1)) {
+			n = recvfrom(sockfd, buf, sizeof buf, 0, NULL, NULL);
+			if (n <= 0) continue;
+
+			/* received password */
+			buf[n] = 0;
+			strncpy(pwd, buf, sizeof pwd);
+			pwd[(sizeof pwd)-1] = 0;
+			printf("%s\n", pwd);
+			break;
+		} else {
+			printf("fail (timeout)\n");
+		}
+	}
+
+	if (!pwd[0]) {
+		printf("Registration failed\n");
+		res.err = ERR_REGISTER;
+		return res;
+	}
 
 	/* ping - pong */
 
-	for (i = 0; i < opts.p; i++) {
+	for (i = 0; i < opts.ping; i++) {
 		printf("Ping... ");
-		snprintf(buf, sizeof buf, "PING  50");
+		snprintf(buf, sizeof buf, "PING 50 %s", pwd);
 		sendto(sockfd, buf, strlen(buf), 0, (struct sockaddr *) &servaddr, sizeof servaddr);
 		gettimeofday(&T_first, NULL);
 
-		tv_sel.tv_sec = 1;
-		tv_sel.tv_usec = 0;
-		if (select(nfds, &fds, NULL, NULL, &tv_sel) > 0) {
+		if (wait_fd(sockfd, 1)) {
 			recvfrom(sockfd, buf, sizeof buf, 0, NULL, NULL);
 			ioctl(sockfd, SIOCGSTAMP, &T_last);
-			res.latency = 0.001 * timediff(&T_last, &T_first);
-			printf("pong (%.1f ms)\n", res.latency);
+			lat = 0.001 * timediff(&T_last, &T_first);
+			printf("pong (%.1f ms)\n", lat);
 
-			if (i == opts.p - 1)
+			if (res.latency < 0)
+				res.latency = lat;
+			else
+				res.latency = (res.latency + lat) / 2.0;
+
+			if (i == opts.ping - 1)
 				break;
 			else
 				sleep(1);
@@ -84,14 +153,13 @@ struct result measure(struct options opts)
 
 	/* request and receive */
 
-	snprintf(buf, sizeof buf, "START %d", opts.n);
-	printf("Sending '%s' to %s\n", buf, opts.ip);
+	snprintf(buf, sizeof buf, "START %d %s", opts.n, pwd);
+	printf("Sending '%s' to %s\n", buf, opts.dst);
 	sendto(sockfd, buf, strlen(buf), 0, (struct sockaddr *) &servaddr, sizeof servaddr);
 
 	tv_sel.tv_sec = opts.t;
 	tv_sel.tv_usec = 0;
-
-	while (select(nfds, &fds, NULL, NULL, &tv_sel) > 0) {
+	while (wait_fd2(sockfd, &tv_sel)) {
 		b = recvfrom(sockfd, buf, sizeof buf, 0, NULL, NULL);
 		rcv_b += b;
 		rcv_n++;

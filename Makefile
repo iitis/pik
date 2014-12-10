@@ -6,11 +6,11 @@ TARGETS = client server
 default: all
 all: $(TARGETS)
 
-client: client.c
-	$(CC) $(CFLAGS) measure.c client.c -o client -static
+client: client.c measure.c
+	$(CC) $(CFLAGS) measure.c client.c -o client
 
 server: server.c
-	$(CC) $(CFLAGS) server.c -o server -static
+	$(CC) -static $(CFLAGS) server.c -o server -lpjf -lpcre
 
 .PHONY: clean
 clean:

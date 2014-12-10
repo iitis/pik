@@ -8,13 +8,20 @@
 
 #include <stdbool.h>
 
-struct options {
-	int n;
-	int s;
-	int t;
-	int p;
-	bool T;
-	const char *ip;
+#define PIK_VERSION "0.2"
+
+struct client_options {
+	int n;            // total KB to request
+	int s;            // skip first s KB
+	int t;            // time limit for receiving
+	int ping;         // number of pings
+	int port;         // UDP port number
+	bool T;           // print timestampped data?
+	const char *dst;  // destination
+};
+
+struct server_options {
+	int port;         // UDP port number
 };
 
 struct result {
@@ -23,12 +30,14 @@ struct result {
 	float bandwidth;
 };
 
-#define ERR_SUCCESS  0
-#define ERR_EMPTY   -1
-#define ERR_NO_DATA -2
+#define ERR_SUCCESS   0
+#define ERR_EMPTY    -1
+#define ERR_NO_DATA  -2
+#define ERR_UNKHOST  -3
+#define ERR_REGISTER -4
 
-/** Measure bandwidth to given host
+/** Measure bandwidth using pik
  * @param opts   options */
-struct result measure(struct options opts);
+struct result pik(struct client_options opts);
 
 #endif
