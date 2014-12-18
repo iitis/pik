@@ -64,7 +64,7 @@ struct result pik(struct client_options opts)
 	struct sockaddr_in servaddr;
 	char buf[2000], pwd[16] = {0};
 	uint32_t diff;
-	struct timeval tv_sel, tv_last, tv_first, T_first, T_now, T_last;
+	struct timeval tv_sel, tv_last, tv_first, T_first, T_now, T_last, T_start, T_ref;
 	uint32_t b;
 	uint32_t rcv_n = 0, rcv_b = 0;
 	uint32_t test_n = 0, test_b = 0;
@@ -131,7 +131,7 @@ struct result pik(struct client_options opts)
 		sendto(sockfd, buf, strlen(buf), 0, (struct sockaddr *) &servaddr, sizeof servaddr);
 		gettimeofday(&T_first, NULL);
 
-		if (wait_fd(sockfd, 1)) {
+		if (wait_fd(sockfd, 3)) {
 			recvfrom(sockfd, buf, sizeof buf, 0, NULL, NULL);
 			ioctl(sockfd, SIOCGSTAMP, &T_last);
 			lat = 0.001 * timediff(&T_last, &T_first);
@@ -156,11 +156,22 @@ struct result pik(struct client_options opts)
 	snprintf(buf, sizeof buf, "START %d %s", opts.n, pwd);
 	printf("Sending '%s' to %s\n", buf, opts.dst);
 	sendto(sockfd, buf, strlen(buf), 0, (struct sockaddr *) &servaddr, sizeof servaddr);
+	gettimeofday(&T_start, NULL);
+
+	// expected time of first received packet
+	if (res.latency > 0) {
+		diff = res.latency * 1000.0 * 0.8;
+		T_last.tv_sec = diff / 1000000;
+		T_last.tv_usec = diff % 1000000;
+		timeradd(&T_start, &T_last, &T_ref);
+	}
 
 	tv_sel.tv_sec = opts.t;
 	tv_sel.tv_usec = 0;
 	while (wait_fd2(sockfd, &tv_sel)) {
 		b = recvfrom(sockfd, buf, sizeof buf, 0, NULL, NULL);
+		if (b < 100) continue;
+
 		rcv_b += b;
 		rcv_n++;
 
@@ -172,16 +183,24 @@ struct result pik(struct client_options opts)
 		if (rcv_n > opts.s) {
 			test_b += b;
 			test_n++;
-			if (test_n == 1)
+
+			// first received packet?
+			if (test_n == 1) {
 				ioctl(sockfd, SIOCGSTAMP, &tv_first);
+				if (opts.s == 0 && timercmp(&tv_first, &T_ref, >)) {
+					printf("Corrected tv_first\n");
+					tv_first = T_ref;
+				}
+			}
 		}
 
 		// print receive timings?
 		if (opts.T) {
 			if (rcv_n == 1) {
 				ioctl(sockfd, SIOCGSTAMP, &T_first);
+				diff = timediff(&T_first, &T_start);
 				T_last = T_first;
-				printf("1\t0\t%u\t0\n", rcv_b);
+				printf("1\t0\t%u\t%u\n", rcv_b, diff);
 			} else {
 				ioctl(sockfd, SIOCGSTAMP, &T_now);
 				diff = timediff(&T_now, &T_last);

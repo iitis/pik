@@ -26,6 +26,7 @@ static void help(void)
 	printf("\n");
 	printf("Options:\n");
 	printf("  -p <num>               set port number [4000]\n");
+	printf("  -r <rate>              max UDP send rate (mbps) [0=inf]\n");
 	printf("  --help,-h              show this usage help screen\n");
 	printf("  --version,-v           show version and copying information\n");
 	printf("  --debug,-d <num>       set debugging level\n");
@@ -47,7 +48,7 @@ static int parse_argv(struct server_options *opts, int argc, char *argv[])
 {
 	int i, c;
 
-	static char *short_opts = "hvd:p:";
+	static char *short_opts = "hvd:p:r:";
 	static struct option long_opts[] = {
 		/* name, has_arg, NULL, short_ch */
 		{ "help",       0, NULL,  1  },
@@ -58,6 +59,7 @@ static int parse_argv(struct server_options *opts, int argc, char *argv[])
 
 	/* defaults */
 	opts->port = 4000;
+	opts->max_rate = 0.0;
 
 	for (;;) {
 		c = getopt_long(argc, argv, short_opts, long_opts, &i);
@@ -70,12 +72,16 @@ static int parse_argv(struct server_options *opts, int argc, char *argv[])
 			case  2 : version(); return 2;
 			case  3 : debug = atoi(optarg); break;
 			case 'p': opts->port = atoi(optarg); break;
+			case 'r': opts->max_rate = (float) atoi(optarg); break;
 			default: help(); return 1;
 		}
 	}
 
 	if (opts->port < 1 || opts->port >65535)
 		opts->port = 4000;
+
+	if (opts->max_rate < 0)
+		opts->max_rate = 0.0;
 
 	return 0;
 }
@@ -124,6 +130,7 @@ int main(int argc, char**argv)
 	struct dbentry *e;
 	mmatic *mm;
 	thash *db;
+	float ssleep;
 
 	if (parse_argv(&opts, argc, argv) != 0)
 		return 1;
@@ -140,7 +147,13 @@ int main(int argc, char**argv)
 		return 1;
 	}
 
-	dbg(1, "pik_server listening on port %u\n", opts.port);
+	if (opts.max_rate > 0.0)
+		ssleep = 1000000.0 / ((opts.max_rate * 1000000.0 / 8.0) / (sizeof mesg + 50));
+	else
+		ssleep = -1;
+
+	dbg(1, "pik_server listening on port %u, max_rate=%.0f (ssleep=%g)\n",
+		opts.port, opts.max_rate, ssleep);
 
 	srand(pjf_timestamp());
 	for (i = 0; i < sizeof mesg; i++) mesg[i] = random();
@@ -198,6 +211,7 @@ int main(int argc, char**argv)
 			for (i = 0; i < n; i++) {
 				j = sendto(sockfd, mesg, sizeof mesg, 0, (struct sockaddr *) &cliaddr, sizeof cliaddr);
 				if (j < 0) break;
+				if (ssleep > 0) usleep(ssleep);
 			}
 		}
 	}

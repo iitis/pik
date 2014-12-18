@@ -132,8 +132,8 @@ int main(int argc, char**argv)
 			break;
 	}
 
-	printf("Bandwidth: %g kbit/s\n", res.bandwidth);
-	printf("Latency: %g ms\n", res.latency);
+	printf("Bandwidth: %.0f kbit/s\n", res.bandwidth);
+	printf("Latency: %.0f ms\n", res.latency);
 
 	return 0;
 }

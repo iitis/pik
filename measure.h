@@ -8,7 +8,7 @@
 
 #include <stdbool.h>
 
-#define PIK_VERSION "0.2"
+#define PIK_VERSION "0.3"
 
 struct client_options {
 	int n;            // total KB to request
@@ -22,6 +22,7 @@ struct client_options {
 
 struct server_options {
 	int port;         // UDP port number
+	float max_rate;   // max send rate
 };
 
 struct result {
