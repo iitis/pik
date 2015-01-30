@@ -22,8 +22,8 @@ static void help(void)
 	printf("\n");
 	printf("Options:\n");
 	printf("  -p <num>               set port number [4000]\n");
-	printf("  -n <kbytes>            amount of kilobytes to use [50]\n");
-	printf("  -s <kbytes>            amount of kilobytes to skip [10]\n");
+	printf("  -n <kbytes>            amount of kilobytes to use [100]\n");
+	printf("  -s <kbytes>            amount of kilobytes to skip [0]\n");
 	printf("  -T                     print receive timings\n");
 	printf("  -t <seconds>           time limit [1]\n");
 	printf("  -P <num>               number of pings to send [1]\n");
@@ -56,8 +56,8 @@ static int parse_argv(struct client_options *opts, int argc, char *argv[])
 	};
 
 	/* defaults */
-	opts->n = 50;
-	opts->s = 10;
+	opts->n = 100;
+	opts->s = 0;
 	opts->T = false;
 	opts->t = 1;
 	opts->ping = 1;
